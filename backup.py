@@ -63,18 +63,19 @@ def clone_repo(repo, backup_dir, http, password):
     global _quiet, _verbose
     scm = repo.get('scm')
     slug = repo.get('slug')
-    username = repo.get('owner')
+    username = repo.get('username')
+    owner = repo.git('owner')
     command = None
     if scm == 'hg':
         if http:
-            command = 'hg clone https://%s:%s@bitbucket.org/%s/%s %s' % (username, password, username, slug, backup_dir)
+            command = 'hg clone https://%s:%s@bitbucket.org/%s/%s %s' % (username, password, owner, slug, backup_dir)
         else:
-            command = 'hg clone ssh://hg@bitbucket.org/%s/%s %s' % (username, slug, backup_dir)
+            command = 'hg clone ssh://hg@bitbucket.org/%s/%s %s' % (owner, slug, backup_dir)
     if scm == 'git':
         if http:
-            command = "git clone https://%s:%s@bitbucket.org/%s/%s.git %s" % (username, password, username, slug, backup_dir)
+            command = "git clone https://%s:%s@bitbucket.org/%s/%s.git %s" % (username, password, owner, slug, backup_dir)
         else:
-            command = "git clone git@bitbucket.org:%s/%s.git %s" % (username, slug, backup_dir)
+            command = "git clone git@bitbucket.org:%s/%s.git %s" % (owner, slug, backup_dir)
     if not command:
         exit("could not build command (scm [%s] not recognized?)" % scm)
     debug("Cloning %s..." % repo.get('name'))
@@ -112,7 +113,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     username = args.username
     password = args.password
-    owner = args.team if args.team else username
+    #owner = args.team if args.team else username
+    team = args.team
     location = args.location
     _quiet = args.quiet
     _verbose = args.verbose
@@ -128,14 +130,19 @@ if __name__ == "__main__":
     # ok to proceed
     try:
         bb = bitbucket.BitBucket(username, password, _verbose)
-        user = bb.user(owner)
+        user = bb.user(username)
         repos = user.repositories()
+        if team:
+            user2 = bb.user(team)
+            repos2 = user2.repositories()
+            repos.extend(repos2)
         if not repos:
             print "No repositories found. Are you sure you provided the correct password"
         for repo in repos:
             debug("Backing up [%s]..." % repo.get("name"), True)
             backup_dir = os.path.join(location, repo.get("slug"))
             if not os.path.isdir(backup_dir):
+                repo['username'] = username
                 clone_repo(repo, backup_dir, http, password)
             else:
                 debug("Repository [%s] already in place, just updating..." % repo.get("name"))
