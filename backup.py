@@ -109,6 +109,12 @@ def build_api_token_header(api_token: str) -> str:
     # or with : '-c "http.https://bitbucket.org/.extraHeader={auth_header}"'
     return auth_header
 
+def clean_api_creds_from_repo(backup_dir: str) -> None:
+    debug('Cleaning repo of saved credentials')
+    # clear saved HTTP creds from REPO
+    exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.extraHeader', stop_on_error=False)
+    exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.https://bitbucket.org/.extraHeader', stop_on_error=False)
+
 
 def fetch_lfs_content(backup_dir: str, api_token: str = None, http: bool = False):
     debug("Fetching LFS content...")
@@ -189,49 +195,64 @@ def clone_repo(
     fetch_lfs=False,
 ):
     global _quiet, _verbose
-    scm = repo.get("scm")
     slug = repo.get("slug")
     #owner = repo.get("owner").get("username") or repo.get("owner").get("nickname")
     owner = repo.get("workspace").get("slug") or repo.get("owner").get("username")
     owner_url = quote(owner, safe="@")
+    
     if http and not all((username, api_token)):
-        exit("Cannot backup via http without username and api_token" % scm)
+        exit("Cannot backup via http without username and api_token")
+    
     slug_url = quote(slug)
     command = None
-    if scm == "git":
-        git_command = "git clone"
-        if mirror:
-            git_command = "git clone --mirror"
-        if http:
-            #git_command = f'{git_command} -c "http.extraHeader={build_api_token_header(api_token)}"'
-            git_command = f'{git_command} -c "http.https://bitbucket.org/.extraHeader={build_api_token_header(api_token)}"'
 
-            command = "%s https://bitbucket.org/%s/%s.git" % (
-                git_command,
-                owner_url,
-                slug_url,
-            )
-        else:
-            command = "%s git@bitbucket.org:%s/%s.git" % (
-                git_command,
-                owner_url,
-                slug_url,
-            )
+    git_command = "git clone"
+    if mirror:
+        git_command = "git clone --mirror"
+    if http:
+        #git_command = f'{git_command} -c "http.extraHeader={build_api_token_header(api_token)}"'
+        git_command = f'{git_command} -c "http.https://bitbucket.org/.extraHeader={build_api_token_header(api_token)}"'
+
+        command = "%s https://bitbucket.org/%s/%s.git" % (
+            git_command,
+            owner_url,
+            slug_url,
+        )
+    else:
+        command = "%s git@bitbucket.org:%s/%s.git" % (
+            git_command,
+            owner_url,
+            slug_url,
+        )
+        
     if not command:
-        exit("could not build command (scm [%s] not recognized?)" % scm)
+        exit("could not build command")
+
     debug("Cloning %s..." % repo.get("name"))
     exec_cmd('%s "%s"' % (command, backup_dir))
-    if scm == "git" and fetch_lfs:
+
+    if http:
+        # !! This cleaning block needs to run before fetch_lfs_content()  !!
+        # fetch_lfs_content() failure message:
+        #   batch response: Client error: https://bitbucket.org/<owner>/<slug>.git/info/lfs/objects/batch
+        #   error: failed to fetch some objects from 'https://bitbucket.org/<owner>/<slug>.git/info/lfs'
+
+        clean_api_creds_from_repo(backup_dir)
+
+        # ensure no passwords are saved into remote URL
+        owner = repo.get("workspace").get("slug")
+        owner_url = quote(owner, safe="@")
+        slug = repo.get("slug")
+        slug_url = quote(slug)
+        exec_cmd(f'git -C "{backup_dir}" remote set-url origin https://bitbucket.org/{owner_url}/{slug_url}.git', stop_on_error=False)
+
+    if fetch_lfs:
         fetch_lfs_content(backup_dir, api_token, http)
+        
     if with_wiki and repo.get("has_wiki"):
         debug("Cloning %s's Wiki..." % repo.get("name"))
         exec_cmd("%s/wiki %s_wiki" % (command, backup_dir))
 
-    if http:
-        debug('Cleaning repo of saved credentials')
-        # clear saved HTTP creds from REPO
-        exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.extraHeader', stop_on_error=False)
-        exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.https://bitbucket.org/.extraHeader', stop_on_error=False)
 
 
 def update_repo(
@@ -243,26 +264,29 @@ def update_repo(
         prune=False,
         fetch_lfs=False
 ):
-    scm = repo.get("scm")
     command = None
     os.chdir(backup_dir)
-    if scm == "git":
-        command = "git remote update"
 
-        if http:
-            raw_auth = f"x-bitbucket-api-token-auth:{api_token}"
-            b64_auth = base64.b64encode(raw_auth.encode("utf-8")).decode("utf-8")
-            auth_header = f"Authorization: Basic {b64_auth}"
-            command = f'git -c "http.extraHeader={auth_header}" remote update'
+    command = "git remote update"
 
-        if prune:
-            command = "%s %s" % (command, "--prune")
+    if http:
+        raw_auth = f"x-bitbucket-api-token-auth:{api_token}"
+        b64_auth = base64.b64encode(raw_auth.encode("utf-8")).decode("utf-8")
+        auth_header = f"Authorization: Basic {b64_auth}"
+        command = f'git -c "http.extraHeader={auth_header}" remote update'
+
+    if prune:
+        command = "%s %s" % (command, "--prune")
+
     if not command:
-        exit("could not build command (scm [%s] not recognized?)" % scm)
+        exit("could not build command")
+
     debug("Updating %s..." % repo.get("name"))
     exec_cmd(command)
-    if scm == "git" and fetch_lfs:
+
+    if fetch_lfs:
         fetch_lfs_content(backup_dir, api_token, http)
+
     wiki_dir = "%s_wiki" % backup_dir
     if with_wiki and repo.get("has_wiki") and os.path.isdir(wiki_dir):
         os.chdir(wiki_dir)
@@ -270,10 +294,7 @@ def update_repo(
         exec_cmd(command)
 
     if http:
-        debug('Cleaning repo of saved credentials')
-        # clear saved HTTP creds from REPO config file - should not be needed here for safety
-        exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.extraHeader', stop_on_error=False)
-        exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.https://bitbucket.org/.extraHeader', stop_on_error=False)
+        clean_api_creds_from_repo(backup_dir)
 
         # ensure no passwords are saved into remote URL
         owner = repo.get("workspace").get("slug")
