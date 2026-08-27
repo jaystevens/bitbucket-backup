@@ -144,7 +144,8 @@ def get_repositories(
                 sys.exit(1)
             username = response.json().get("username")
         
-        url = "https://api.bitbucket.org/2.0/repositories/{}/".format(team or username)
+        # url = "https://api.bitbucket.org/2.0/repositories/{}".format(team or username)
+        url = "https://api.bitbucket.org/2.0/repositories/{}?fields=next,values.name,values.slug,values.workspace.slug,values.owner.username,values.has_wiki,&pagelen=100".format(team or username)
 
         _logger.info("Fetching Repository List...please wait...")
         response = requests.get(url, auth=auth)
