@@ -258,11 +258,12 @@ def update_repo(
     if fetch_lfs:
         fetch_lfs_content(backup_dir, api_token, http)
 
-    if with_wiki and repo.get("has_wiki") and os.path.isdir(wiki_dir):
+    if with_wiki and repo.get("has_wiki"):
         wiki_dir = f"{backup_dir}_wiki"
-        os.chdir(wiki_dir)
-        _logger.info(f"Updating {repo.get('name')}'s Wiki...")
-        exec_cmd(command)
+        if os.path.isdir(wiki_dir):
+            os.chdir(wiki_dir)
+            _logger.info(f"Updating {repo.get('name')}'s Wiki...")
+            exec_cmd(command)
 
     if http:
         clean_api_creds_from_repo(backup_dir)
