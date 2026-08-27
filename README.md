@@ -20,7 +20,16 @@ API Tokens are the replacement for App Passwords, that are the replacement for u
 Username (Bitbucket Email) and API Token are needed to access the Bitbucket API to get a repo listing.  
 Clone/Update/LFS will use API Tokens when `--http` is specified, otherwise it should use SSH Keys.  
 The API Token must have read repositories permission.  
-<https://support.atlassian.com/bitbucket-cloud/docs/api-tokens/>
+<https://support.atlassian.com/bitbucket-cloud/docs/api-tokens/>  
+
+# Creating API Tokens:
+- <https://id.atlassian.com/manage-profile/security/api-tokens>
+- `Create API token with scopes`
+- Name API token: add a 'name' and expire date
+- Select the app: `Bitbucket`
+- Select Bitbucket scopes:
+    - `read:user:bitbucket` for repo listing
+    - `read:repository:bitbucket` for repo access
 
 
 ## jaystevens Fork Changes
