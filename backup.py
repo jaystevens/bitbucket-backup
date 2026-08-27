@@ -2,7 +2,6 @@
 import argparse
 import datetime
 import os
-import shutil
 import subprocess
 import sys
 import re
@@ -338,12 +337,6 @@ def main():
         "--prune", dest="prune", action="store_true", help="Prune repo on remote update"
     )
     parser.add_argument(
-        "--delete-extraneous",
-        dest="delete_extraneous",
-        action="store_true",
-        help="Delete extraneous repositories from backup",
-    )
-    parser.add_argument(
         "--ignore-repo-list",
         dest="ignore_repo_list",
         nargs="+",
@@ -374,7 +367,6 @@ def main():
     _mirror = args.mirror
     _fetchlfs = args.fetchlfs
     _with_wiki = args.with_wiki
-    _delete_extraneous = args.delete_extraneous
     if _quiet:
         _verbose = False  # override in case both are selected
     team = args.team
@@ -466,15 +458,6 @@ def main():
                     )
                 else:
                     break
-
-        for dir in os.listdir(location):
-            if (
-                _delete_extraneous
-                and os.path.isdir(os.path.join(location, dir))
-                and not dir in dir_list
-            ):
-                debug("Removing repository [%s]..." % dir, True)
-                shutil.rmtree(os.path.join(location, dir))
 
         if args.compress:
             compress(repo, location)
