@@ -6,6 +6,7 @@ import subprocess
 import sys
 import re
 import base64
+import time
 import traceback
 from getpass import getpass
 
@@ -75,6 +76,7 @@ def exec_cmd(command, stop_on_error=True):
             exit("Command [%s] failed" % command_masked, resp)
         else:
             debug("Command [%s] failed: %s" % (command_masked, resp))
+    return resp
 
 
 def compress(repo, location):
@@ -116,9 +118,19 @@ def fetch_lfs_content(backup_dir: str, api_token: str = None, http: bool = False
     if http:
         command = f'git -c "http.https://bitbucket.org/.extraHeader={build_api_token_header(api_token)}" lfs fetch --all'
 
-    exec_cmd(command, stop_on_error=False)
-
-
+    retry_counter = 0
+    while True:
+        resp = exec_cmd(command, stop_on_error=False)
+        if resp == 0:
+            break
+        else:
+            retry_counter += 1
+            if retry_counter >= 3:
+                debug('error Fetching LFS Content... Giving Up')
+                break
+            else:
+                debug(f'error Fetching LFS Content... Retry attempt {retry_counter}')
+                time.sleep(1)
 
 
 def get_repositories(
