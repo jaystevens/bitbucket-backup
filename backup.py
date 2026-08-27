@@ -395,7 +395,7 @@ def main():
     team = args.team
 
     if not username:
-        username = input("Enter bitbucket username: ")
+        username = input("Enter bitbucket username email: ")
     if not api_token:
         api_token = getpass(prompt="Enter your bitbucket API Token: ")
     if not location:
