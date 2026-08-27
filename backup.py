@@ -273,15 +273,8 @@ def update_repo(
 
 def main():
     parser = argparse.ArgumentParser(description="Usage: %prog [options] ")
-    parser.add_argument("-u", "--username", dest="username", help="Bitbucket username")
-    #parser.add_argument("-p", "--password", dest="password", help="Bitbucket password")
-    parser.add_argument("--api-token", dest="api_token", help="Bitbucket API Token")
-    #parser.add_argument(
-    #    "-k", "--oauth-key", dest="oauth_key", help="Bitbucket oauth key"
-    #)
-    #parser.add_argument(
-    #    "-s", "--oauth-secret", dest="oauth_secret", help="Bitbucket oauth secret"
-    #)
+    parser.add_argument("-u", "--username", dest="username", help="Bitbucket account email address")
+    parser.add_argument("-p", "--api-token", dest="api_token", help="Bitbucket API Token")
     parser.add_argument("-t", "--team", dest="team", help="Bitbucket team")
     parser.add_argument(
         "-l", "--location", dest="location", help="Local backup location"
@@ -353,10 +346,7 @@ def main():
     args = parser.parse_args()
     location = args.location
     username = args.username
-    #password = args.password
     api_token = args.api_token
-    #oauth_key = args.oauth_key
-    #oauth_secret = args.oauth_secret
     repo_whitelist = args.repo_whitelist
     http = args.http
     max_attempts = args.attempts
