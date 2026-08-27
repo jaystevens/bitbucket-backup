@@ -72,9 +72,9 @@ def exec_cmd(command, stop_on_error=True):
     resp = subprocess.call(command, shell=True)
     if resp != 0:
         if stop_on_error:
-            exit("Command [%s] failed" % command, resp)
+            exit("Command [%s] failed" % command_masked, resp)
         else:
-            debug("Command [%s] failed: %s" % (command, resp))
+            debug("Command [%s] failed: %s" % (command_masked, resp))
 
 
 def compress(repo, location):
