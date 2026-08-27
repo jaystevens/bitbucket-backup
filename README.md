@@ -8,7 +8,7 @@ If the repo does exist locally an `git remote update` will be run.
 
 ## Quickstart
 ```bash
-bitbucket-backup [-u <bitbucket_email>] [--api-token <api_token>]
+bitbucket-backup [-u / --username <username>] [-e / --email <bitbucket_email>] [-p / --api-token <api_token>]
   [-l <local_backup_location>] [-t <bitbucket_team>] [-a] [-v] [-q] [-c] [--http] [--skip-password] [--mirror]
   [--prune] [--fetchlfs]
 ```
@@ -28,7 +28,7 @@ The API Token must have read repositories permission.
 - Name API token: add a 'name' and expire date
 - Select the app: `Bitbucket`
 - Select Bitbucket scopes:
-    - `read:user:bitbucket` for repo listing
+    - `read:user:bitbucket` only required for username lookup if `-u` / `--username` not specified
     - `read:repository:bitbucket` for repo access
 
 
@@ -43,3 +43,6 @@ The API Token must have read repositories permission.
 - SSH Keys are not tested by me, they may or may not work.
 - tested repo listing using API Tokens
 - tested Clone/Update/Fetch-LFS with API Tokens
+- add support for reading API Token from environment variable 'BITBUCKET_API_TOKEN'
+    - this can prevent the api token from being in your shell history or visible to `ps`
+    - FYI this spawns git commands with the base64 auth header when connecting over HTTPS
