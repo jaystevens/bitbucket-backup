@@ -100,7 +100,7 @@ def build_api_token_header(api_token: str) -> str:
     if api_token is None:
         debug("build_api_auth_header - api_token is None!")
         return ''
-    raw_auth = f"x-token-auth:{api_token}"
+    raw_auth = f"x-bitbucket-api-token-auth:{api_token}"
     b64_auth = base64.b64encode(raw_auth.encode("utf-8")).decode("utf-8")
     auth_header = f"Authorization: Basic {b64_auth}"
     # use with: '-c "http.extraHeader={auth_header}"'
@@ -238,7 +238,7 @@ def update_repo(
         command = "git remote update"
 
         if http:
-            raw_auth = f"x-token-auth:{api_token}"
+            raw_auth = f"x-bitbucket-api-token-auth:{api_token}"
             b64_auth = base64.b64encode(raw_auth.encode("utf-8")).decode("utf-8")
             auth_header = f"Authorization: Basic {b64_auth}"
             command = f'git -c "http.extraHeader={auth_header}" remote update'
