@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 
 TEST_REQUIRES = ["nose", "unittest2"]
 
-INSTALL_REQUIRES = ["requests", "requests-oauthlib"]
+INSTALL_REQUIRES = ["requests"]
 try:
     import argparse  # noqa
 except ImportError:
