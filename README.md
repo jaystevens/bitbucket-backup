@@ -16,10 +16,10 @@ You can backup a team's repositories instead of your own by supplying the option
 and entering the team slug (this is now called a "Workspace" by BitBucket).
 
 ## API Tokens (jaystevens Fork)
-API Tokens are the replacement for App Passwords, that are the replacement for using Passwords.
-Username and API Token are needed to access the Bitbucket API to get a repo listing.
-Clone/Update/LFS will use API Tokens when `--http` is specified, otherwise it should use SSH Keys.
-The API Token must have read repositories permission.
+API Tokens are the replacement for App Passwords, that are the replacement for using Passwords.  
+Username and API Token are needed to access the Bitbucket API to get a repo listing.  
+Clone/Update/LFS will use API Tokens when `--http` is specified, otherwise it should use SSH Keys.  
+The API Token must have read repositories permission.  
 <https://support.atlassian.com/bitbucket-cloud/docs/api-tokens/>
 
 
