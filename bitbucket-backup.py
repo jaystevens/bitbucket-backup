@@ -138,7 +138,8 @@ def get_repositories(
             # attempt to lookup the username from the User API with the email address
             # this requires the 'read:user:bitbucket' permission on the api token
             _logger.info("Fetching User Info")
-            response = requests.get("https://api.bitbucket.org/2.0/user/", auth=auth)
+            #response = requests.get("https://api.bitbucket.org/2.0/user", auth=auth)
+            response = requests.get("https://api.bitbucket.org/2.0/user?fields=username", auth=auth)
             if response.status_code == 401:
                 _logger.error("Unauthorized! Check your credentials and try again.\nDoes your api token have the 'read:user:bitbucket' permission?\nor specify the -u/--username option to bypass the 'read:user:bitbucket' permission requirement")
                 sys.exit(1)
