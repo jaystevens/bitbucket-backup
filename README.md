@@ -7,8 +7,8 @@ If the repo does exist locally an `git remote update` will be run.
 
 
 ## Quickstart
-```bash
-bitbucket-backup [-u / --username <username>] [-e / --email <bitbucket_email>] [-p / --api-token <api_token>]
+```
+bitbucket-backup.py [-u / --username <username>] [-e / --email <bitbucket_email>] [-p / --api-token <api_token>]
   [-l <local_backup_location>] [-t <bitbucket_team>] [-a / --attempts] [--http] [--mirror] [--fetchlfs] [-v] [-c / --compress (only available on unix)]  [--skip-password] 
   [--prune] 
 ```
@@ -16,7 +16,7 @@ bitbucket-backup [-u / --username <username>] [-e / --email <bitbucket_email>] [
 You can backup a team's repositories instead of your own by supplying the optional `-t` parameter
 and entering the team slug (this is now called a "Workspace" by BitBucket).  
 
-example mirror command:  ```bitbucket_backup.py -u <username> -e <email> -p <API_TOKEN> -l backup_dir --http --mirror --fetchlfs```
+example mirror command:  ```bitbucket-backup.py -u <username> -e <email> -p <API_TOKEN> -l backup_dir --http --mirror --fetchlfs```
 
 # options:
 - `-u` / `--username` is optional, if omitted the api token requires `read:user:bitbucket` permission.

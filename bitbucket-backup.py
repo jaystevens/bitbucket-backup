@@ -16,7 +16,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 
-_verbose = False
+_cmd_silent = False
 
 # logger setup
 _logger = logging.getLogger('bitbucket-backup')
@@ -31,17 +31,16 @@ _logger.addHandler(_logger_ch)
 class MaxBackupAttemptsReached(Exception):
     pass
 
-
 def exec_cmd(command, stop_on_error: bool = True, valid_return_list: list = []) -> int:
     """
     Executes an external command taking into account errors and logging.
     """
-    global _verbose
+    global _cmd_silent
     # Mask the token value while keeping username structure
     command_masked = re.sub(r"(x-bitbucket-api-token-auth:)[^@]+", r"\1*****", command)
     command_masked = re.sub(r"(Authorization:\s*Basic\s+)[^\"]+", r"\1*****", command_masked)
     _logger.debug(f"Executing command: {command_masked}")
-    if not _verbose:
+    if _cmd_silent:
         if sys.platform.startswith('win'):
             command = f"{command} > nul 2> nul"
         else:
@@ -50,7 +49,7 @@ def exec_cmd(command, stop_on_error: bool = True, valid_return_list: list = []) 
     if resp != 0 and (resp not in valid_return_list):
         if stop_on_error:
             _logger.error(f"Command [{command_masked}] failed")
-            sys.exit(-1)
+            sys.exit(1)
         else:
             _logger.warning(f"Command [{command_masked}] failed: {resp}")
     return resp
@@ -132,7 +131,7 @@ def get_repositories(
 
         if auth is None:
             _logger.error("Must provide user_email and api_token")
-            sys.exit(-1)
+            sys.exit(1)
 
         if not team and not username:
             # repository API needs a workspace(team) or username, we only have the email
@@ -142,7 +141,7 @@ def get_repositories(
             response = requests.get("https://api.bitbucket.org/2.0/user/", auth=auth)
             if response.status_code == 401:
                 _logger.error("Unauthorized! Check your credentials and try again.\nDoes your api token have the 'read:user:bitbucket' permission?\nor specify the -u/--username option to bypass the 'read:user:bitbucket' permission requirement")
-                sys.exit(-1)
+                sys.exit(1)
             username = response.json().get("username")
         
         url = "https://api.bitbucket.org/2.0/repositories/{}/".format(team or username)
@@ -162,11 +161,11 @@ def get_repositories(
     except requests.exceptions.RequestException as e:
         if e.response.status_code == 401:
             _logger.error("Error Fetching Repository List - 401 - check email and api token")
-            sys.exit(-1)
+            sys.exit(1)
         else:
             _logger.error(f"Error Fetching Repository List - {e.response.status_code}")
             _logger.error(traceback.format_exc())
-            sys.exit(-1)
+            sys.exit(1)
             
     _logger.info(f"Found {len(repos)} Repositories")
     return repos
@@ -181,7 +180,7 @@ def clone_repo(
     with_wiki: bool = False,
     fetch_lfs: bool = False,
 ) -> None:
-    global _verbose
+
     slug = repo.get("slug")
     #owner = repo.get("owner").get("username") or repo.get("owner").get("nickname")
     owner = repo.get("workspace").get("slug") or repo.get("owner").get("username")
@@ -189,7 +188,7 @@ def clone_repo(
 
     if http and not api_token:
         _logger.error("Cannot backup via http without api_token")
-        sys.exit(-1)
+        sys.exit(1)
 
     slug_url = quote(slug)
 
@@ -285,14 +284,7 @@ def main():
     parser.add_argument("-l", "--location", dest="location", help="Local backup location")
     parser.add_argument("-x", "--non-interactive", dest="non_interactive", default=False, action='store_true', help="Non-Interactive, do not ask for info, will exit if missing options")
     parser.add_argument("--debug", dest="debug", default=False, action='store_true', help='Enable Debug logging')
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        dest="verbose",
-        default=False,
-        help="Verbose output of all cloning commands",
-    )
+    parser.add_argument("-s", "--cmd-silent", dest="cmd_silent", default=False, action='store_true', help="do not show command output, i.e. from git")
     parser.add_argument(
         "-c",
         "--compress",
@@ -311,12 +303,12 @@ def main():
     parser.add_argument(
         "--mirror",
         action="store_true",
-        help="Clone just bare repositories with git clone --mirror (git only)",
+        help="Clone just bare repositories with git clone --mirror)",
     )
     parser.add_argument(
         "--fetchlfs",
         action="store_true",
-        help="Fetch LFS content after clone/pull (git only)",
+        help="Fetch LFS content after clone/pull",
     )
     parser.add_argument("--with-wiki", dest="with_wiki", action="store_true", help="Includes wiki")
     parser.add_argument("--http", action="store_true", help="Fetch via https instead of SSH")
@@ -327,6 +319,7 @@ def main():
         help="Ignores password prompting if no password is provided (for public repositories)",
     )
     parser.add_argument("--prune", dest="prune", action="store_true", help="Prune repo on remote update")
+
     parser.add_argument(
         "--ignore-repo-list",
         dest="ignore_repo_list",
@@ -353,8 +346,8 @@ def main():
     repo_whitelist = args.repo_whitelist
     http = args.http
     max_attempts = args.attempts
-    global _verbose
-    _verbose = args.verbose
+    global _cmd_silent
+    _cmd_silent = args.cmd_silent
     _mirror = args.mirror
     _fetchlfs = args.fetchlfs
     _with_wiki = args.with_wiki
@@ -368,8 +361,11 @@ def main():
     if not user_email:
         if non_interactive:
             _logger.warning("Bitbucket email required! (-e / --email)")
-            sys.exit(-1)
-        user_email = input("Enter bitbucket email: ")
+            sys.exit(1)
+        try:
+            user_email = input("Enter bitbucket email: ")
+        except KeyboardInterrupt, SystemExit:
+            return
 
     # check environment for 'BITBUCKET_API_TOKEN'
     if not api_token:
@@ -380,13 +376,19 @@ def main():
     if not api_token:
         if non_interactive:
             _logger.warning("Bitbucket api token required! (-p / --api-token)")
-            sys.exit(-1)
-        api_token = getpass(prompt="Enter your bitbucket API Token: ")
+            sys.exit(1)
+        try:
+            api_token = getpass(prompt="Enter your bitbucket API Token: ")
+        except KeyboardInterrupt, SystemExit:
+            return
     if not location:
         if non_interactive:
             _logger.warning("local location required (-l / --location)")
-            sys.exit(-1)
-        location = input("Enter local location to backup to: ")
+            sys.exit(1)
+        try:
+            location = input("Enter local location to backup to: ")
+        except KeyboardInterrupt, SystemExit:
+            return
     location = os.path.abspath(location)
 
     # ok to proceed
@@ -448,14 +450,20 @@ def main():
                             prune=args.prune,
                             fetch_lfs=_fetchlfs,
                         )
-                except:
-                    traceback.print_exc()
+                except KeyboardInterrupt:
+                    raise KeyboardInterrupt
+                #except SystemExit:
+                #    raise SystemExit
+                except SystemExit:
                     if attempt == max_attempts:
                         raise MaxBackupAttemptsReached(
                             "repo [%s] is reached maximum number [%d] of backup tries"
                             % (repo.get("name"), attempt)
                         )
                     _logger.warning(f"Failed to backup repository [{repo.get('name')}], keep trying, {max_attempts - attempt} attempts remain")
+                except:
+                    traceback.print_exc()
+                    break
                 else:
                     break
 
@@ -467,16 +475,16 @@ def main():
         _logger.info("Finished!")
     except (KeyboardInterrupt):
         _logger.warning("Operation cancelled. There might be inconsistent data in location directory.")
-        sys.exit(-1)
+        sys.exit(1)
     except SystemExit:
         _logger.warning("Exit Requested, There might be inconsistent data in location directory.")
-        sys.exit(-1)
+        sys.exit(1)
     except MaxBackupAttemptsReached as e:
         _logger.warning(f'Unable to backup: {e}')
-        sys.exit(-1)
+        sys.exit(1)
     except:
         _logger.error(traceback.format_exc())
-        sys.exit(-1)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
