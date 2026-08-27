@@ -5,6 +5,9 @@ import os
 import shutil
 import subprocess
 import sys
+import re
+import base64
+import traceback
 from getpass import getpass
 
 import requests
@@ -58,7 +61,10 @@ def exec_cmd(command, stop_on_error=True):
     Executes an external command taking into account errors and logging.
     """
     global _verbose
-    debug("Executing command: %s" % command)
+    # Mask the token value while keeping username structure
+    command_masked = re.sub(r"(x-bitbucket-api-token-auth:)[^@]+", r"\1*****", command)
+    command_masked = re.sub(r"(Authorization:\s*Basic\s+)[^\"]+", r"\1*****", command_masked)
+    debug("Executing command: %s" % command_masked)
     if not _verbose:
         if "nt" == os.name:
             command = "%s > nul 2> nul" % command
@@ -91,33 +97,51 @@ def compress(repo, location):
         if os.path.isdir(path):
             exec_cmd("rm -rfv %s" % path)
 
+def build_api_token_header(api_token: str) -> str:
+    if api_token is None:
+        debug("build_api_auth_header - api_token is None!")
+        return ''
+    raw_auth = f"x-token-auth:{api_token}"
+    b64_auth = base64.b64encode(raw_auth.encode("utf-8")).decode("utf-8")
+    auth_header = f"Authorization: Basic {b64_auth}"
+    # use with: '-c "http.extraHeader={auth_header}"'
+    # or with : '-c "http.https://bitbucket.org/.extraHeader={auth_header}"'
+    return auth_header
 
-def fetch_lfs_content(backup_dir):
+
+def fetch_lfs_content(backup_dir: str, api_token: str = None, http: bool = False):
     debug("Fetching LFS content...")
     os.chdir(backup_dir)
     command = "git lfs fetch --all"
+
+    if http:
+        command = f'git -c "http.https://bitbucket.org/.extraHeader={build_api_token_header(api_token)}" lfs fetch --all'
+
     exec_cmd(command, stop_on_error=False)
 
 
+
+
 def get_repositories(
-    username=None, password=None, oauth_key=None, oauth_secret=None, team=None
+        username: str = None,
+        api_token: str = None,
+        team: str = None
 ):
     auth = None
     repos = []
     try:
-        if all((oauth_key, oauth_secret)):
-            from requests_oauthlib import OAuth1
-
-            auth = OAuth1(oauth_key, oauth_secret)
-        if all((username, password)):
-            auth = HTTPBasicAuth(username, password)
+        if all((username, api_token)):
+            auth = HTTPBasicAuth(username, api_token)
         if auth is None:
-            exit("Must provide username/password or oath credentials")
+            exit("Must provide username/api_token")
         if not team or username:
             response = requests.get("https://api.bitbucket.org/2.0/user/", auth=auth)
+            if response.status_code == 401:
+                exit("Unauthorized! Check your credentials and try again.", 22 )
             username = response.json().get("username")
         url = "https://api.bitbucket.org/2.0/repositories/{}/".format(team or username)
 
+        debug("Fetching Repository List")
         response = requests.get(url, auth=auth)
         response.raise_for_status()
         repos_data = response.json()
@@ -139,6 +163,7 @@ def get_repositories(
                 "Connection Error! Bitbucket returned HTTP error [%s]."
                 % e.response.status_code
             )
+    debug(f"Found {len(repos)} Repositories")
     return repos
 
 
@@ -147,7 +172,7 @@ def clone_repo(
     backup_dir,
     http,
     username,
-    password,
+    api_token,
     mirror=False,
     with_wiki=False,
     fetch_lfs=False,
@@ -155,31 +180,23 @@ def clone_repo(
     global _quiet, _verbose
     scm = repo.get("scm")
     slug = repo.get("slug")
-    owner = repo.get("owner").get("username") or repo.get("owner").get("nickname")
-    owner_url = quote(owner)
-    if http and not all((username, password)):
-        exit("Cannot backup via http without username and password" % scm)
+    #owner = repo.get("owner").get("username") or repo.get("owner").get("nickname")
+    owner = repo.get("workspace").get("slug") or repo.get("owner").get("username")
+    owner_url = quote(owner, safe="@")
+    if http and not all((username, api_token)):
+        exit("Cannot backup via http without username and api_token" % scm)
     slug_url = quote(slug)
     command = None
-    if scm == "hg":
-        if http:
-            command = "hg clone https://%s:%s@bitbucket.org/%s/%s" % (
-                quote(username),
-                quote(password),
-                owner_url,
-                slug_url,
-            )
-        else:
-            command = "hg clone ssh://hg@bitbucket.org/%s/%s" % (owner_url, slug_url)
     if scm == "git":
         git_command = "git clone"
         if mirror:
             git_command = "git clone --mirror"
         if http:
-            command = "%s https://%s:%s@bitbucket.org/%s/%s.git" % (
+            #git_command = f'{git_command} -c "http.extraHeader={build_api_token_header(api_token)}"'
+            git_command = f'{git_command} -c "http.https://bitbucket.org/.extraHeader={build_api_token_header(api_token)}"'
+
+            command = "%s https://bitbucket.org/%s/%s.git" % (
                 git_command,
-                quote(username),
-                quote(password),
                 owner_url,
                 slug_url,
             )
@@ -194,20 +211,39 @@ def clone_repo(
     debug("Cloning %s..." % repo.get("name"))
     exec_cmd('%s "%s"' % (command, backup_dir))
     if scm == "git" and fetch_lfs:
-        fetch_lfs_content(backup_dir)
+        fetch_lfs_content(backup_dir, api_token, http)
     if with_wiki and repo.get("has_wiki"):
         debug("Cloning %s's Wiki..." % repo.get("name"))
         exec_cmd("%s/wiki %s_wiki" % (command, backup_dir))
 
+    if http:
+        debug('Cleaning repo of saved credentials')
+        # clear saved HTTP creds from REPO
+        exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.extraHeader', stop_on_error=False)
+        exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.https://bitbucket.org/.extraHeader', stop_on_error=False)
 
-def update_repo(repo, backup_dir, with_wiki=False, prune=False, fetch_lfs=False):
+
+def update_repo(
+        repo,
+        backup_dir,
+        http,
+        api_token,
+        with_wiki=False,
+        prune=False,
+        fetch_lfs=False
+):
     scm = repo.get("scm")
     command = None
     os.chdir(backup_dir)
-    if scm == "hg":
-        command = "hg pull -u"
     if scm == "git":
         command = "git remote update"
+
+        if http:
+            raw_auth = f"x-token-auth:{api_token}"
+            b64_auth = base64.b64encode(raw_auth.encode("utf-8")).decode("utf-8")
+            auth_header = f"Authorization: Basic {b64_auth}"
+            command = f'git -c "http.extraHeader={auth_header}" remote update'
+
         if prune:
             command = "%s %s" % (command, "--prune")
     if not command:
@@ -215,24 +251,38 @@ def update_repo(repo, backup_dir, with_wiki=False, prune=False, fetch_lfs=False)
     debug("Updating %s..." % repo.get("name"))
     exec_cmd(command)
     if scm == "git" and fetch_lfs:
-        fetch_lfs_content(backup_dir)
+        fetch_lfs_content(backup_dir, api_token, http)
     wiki_dir = "%s_wiki" % backup_dir
     if with_wiki and repo.get("has_wiki") and os.path.isdir(wiki_dir):
         os.chdir(wiki_dir)
         debug("Updating %s's Wiki..." % repo.get("name"))
         exec_cmd(command)
 
+    if http:
+        debug('Cleaning repo of saved credentials')
+        # clear saved HTTP creds from REPO config file - should not be needed here for safety
+        exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.extraHeader', stop_on_error=False)
+        exec_cmd(f'git -C "{backup_dir}" config --local --unset-all http.https://bitbucket.org/.extraHeader', stop_on_error=False)
+
+        # ensure no passwords are saved into remote URL
+        owner = repo.get("workspace").get("slug")
+        owner_url = quote(owner, safe="@")
+        slug = repo.get("slug")
+        slug_url = quote(slug)
+        exec_cmd(f'git -C "{backup_dir}" remote set-url origin https://bitbucket.org/{owner_url}/{slug_url}.git', stop_on_error=False)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Usage: %prog [options] ")
     parser.add_argument("-u", "--username", dest="username", help="Bitbucket username")
-    parser.add_argument("-p", "--password", dest="password", help="Bitbucket password")
-    parser.add_argument(
-        "-k", "--oauth-key", dest="oauth_key", help="Bitbucket oauth key"
-    )
-    parser.add_argument(
-        "-s", "--oauth-secret", dest="oauth_secret", help="Bitbucket oauth secret"
-    )
+    #parser.add_argument("-p", "--password", dest="password", help="Bitbucket password")
+    parser.add_argument("--api-token", dest="api_token", help="Bitbucket API Token")
+    #parser.add_argument(
+    #    "-k", "--oauth-key", dest="oauth_key", help="Bitbucket oauth key"
+    #)
+    #parser.add_argument(
+    #    "-s", "--oauth-secret", dest="oauth_secret", help="Bitbucket oauth secret"
+    #)
     parser.add_argument("-t", "--team", dest="team", help="Bitbucket team")
     parser.add_argument(
         "-l", "--location", dest="location", help="Local backup location"
@@ -310,9 +360,10 @@ def main():
     args = parser.parse_args()
     location = args.location
     username = args.username
-    password = args.password
-    oauth_key = args.oauth_key
-    oauth_secret = args.oauth_secret
+    #password = args.password
+    api_token = args.api_token
+    #oauth_key = args.oauth_key
+    #oauth_secret = args.oauth_secret
     repo_whitelist = args.repo_whitelist
     http = args.http
     max_attempts = args.attempts
@@ -328,11 +379,10 @@ def main():
         _verbose = False  # override in case both are selected
     team = args.team
 
-    if not all((oauth_key, oauth_secret)):
-        if not username:
-            username = input("Enter bitbucket username: ")
-        if not password:
-            password = getpass(prompt="Enter your bitbucket password: ")
+    if not username:
+        username = input("Enter bitbucket username: ")
+    if not api_token:
+        api_token = getpass(prompt="Enter your bitbucket API Token: ")
     if not location:
         location = input("Enter local location to backup to: ")
     location = os.path.abspath(location)
@@ -340,12 +390,10 @@ def main():
     # ok to proceed
     try:
         repos = get_repositories(
-            username=username,
-            password=password,
-            oauth_key=oauth_key,
-            oauth_secret=oauth_secret,
-            team=team,
-        )
+                username=username,
+                api_token=api_token,
+                team=team,
+                )
         repos = sorted(repos, key=lambda repo_: repo_.get("name"))
         dir_list = []
         if not repos:
@@ -386,7 +434,7 @@ def main():
                             backup_dir,
                             http,
                             username,
-                            password,
+                            api_token,
                             mirror=_mirror,
                             with_wiki=_with_wiki,
                             fetch_lfs=_fetchlfs,
@@ -399,11 +447,14 @@ def main():
                         update_repo(
                             repo,
                             backup_dir,
+                            http,
+                            api_token,
                             with_wiki=_with_wiki,
                             prune=args.prune,
                             fetch_lfs=_fetchlfs,
                         )
                 except:
+                    traceback.print_exc()
                     if attempt == max_attempts:
                         raise MaxBackupAttemptsReached(
                             "repo [%s] is reached maximum number [%d] of backup tries"
@@ -437,8 +488,6 @@ def main():
         exit("Unable to backup: %s" % e)
     except:
         if not _quiet:
-            import traceback
-
             traceback.print_exc()
         exit("Unknown error.", 11)  # EAGAIN - Try again
 
